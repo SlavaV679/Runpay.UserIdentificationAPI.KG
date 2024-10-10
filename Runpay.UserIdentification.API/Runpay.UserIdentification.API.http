@@ -1,6 +1,6 @@
 @Runpay.UserIdentification.API_HostAddress = http://localhost:5039
 
-GET {{Runpay.UserIdentification.API_HostAddress}}/weatherforecast/
+GET {{Runpay.UserIdentification.API_HostAddress}}/identification/api
 Accept: application/json
 
 ###

@@ -3,7 +3,13 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.10.35122.118
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Runpay.UserIdentification.API", "Runpay.UserIdentification.API\Runpay.UserIdentification.API.csproj", "{49248F29-954A-472E-B813-2DBF2C551170}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Runpay.UserIdentification.API", "Runpay.UserIdentification.API\Runpay.UserIdentification.API.csproj", "{49248F29-954A-472E-B813-2DBF2C551170}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Runpay.UserIdentification.Domain", "Runpay.UserIdentification.Domain\Runpay.UserIdentification.Domain.csproj", "{B1A44B27-77EA-470A-A65E-0FEFAB6819DF}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Runpay.UserIdentification.BisinessLogic", "Runpay.UserIdentification.BisinessLogic\Runpay.UserIdentification.BisinessLogic.csproj", "{0F4030D7-9A17-4E72-A2DC-8DBA93EAA75C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Runpay.UserIdentification.DataAccess", "Runpay.UserIdentification.DataAccess\Runpay.UserIdentification.DataAccess.csproj", "{5C080780-6DE2-45F2-9E7D-47509ECD8051}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +21,18 @@ Global
 		{49248F29-954A-472E-B813-2DBF2C551170}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{49248F29-954A-472E-B813-2DBF2C551170}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{49248F29-954A-472E-B813-2DBF2C551170}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1A44B27-77EA-470A-A65E-0FEFAB6819DF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1A44B27-77EA-470A-A65E-0FEFAB6819DF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1A44B27-77EA-470A-A65E-0FEFAB6819DF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1A44B27-77EA-470A-A65E-0FEFAB6819DF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0F4030D7-9A17-4E72-A2DC-8DBA93EAA75C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0F4030D7-9A17-4E72-A2DC-8DBA93EAA75C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0F4030D7-9A17-4E72-A2DC-8DBA93EAA75C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0F4030D7-9A17-4E72-A2DC-8DBA93EAA75C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5C080780-6DE2-45F2-9E7D-47509ECD8051}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5C080780-6DE2-45F2-9E7D-47509ECD8051}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5C080780-6DE2-45F2-9E7D-47509ECD8051}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5C080780-6DE2-45F2-9E7D-47509ECD8051}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
