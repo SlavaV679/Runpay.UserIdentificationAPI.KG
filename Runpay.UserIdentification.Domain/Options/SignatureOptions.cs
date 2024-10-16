@@ -11,5 +11,10 @@
         /// Is need to validate signature
         /// </summary>
         public bool ValidateSignature { get; set; }
+
+        /// <summary>
+        /// Secret key
+        /// </summary>
+        public string SecretKey { get; set; }
     }
 }

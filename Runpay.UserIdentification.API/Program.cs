@@ -7,6 +7,10 @@ using Runpay.UserIdentification.BisinessLogic;
 using Runpay.UserIdentification.BisinessLogic.Helpers;
 using Runpay.UserIdentification.Domain.Models;
 using System.Net.Mime;
+using Runpay.UserIdentification.DataAccess.Interfaces;
+using Runpay.UserIdentification.DataAccess.Repository;
+using Runpay.UserIdentification.DataAccess.Payments;
+using Runpay.UserIdentification.DataAccess.IdentifyDoc;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,11 +27,17 @@ builder.Services.AddLogging(loggingBuilder =>
 });
 
 builder.Services.AddOptions<TerminalApiOptions>().BindConfiguration(nameof(TerminalApiOptions)).ValidateDataAnnotations().ValidateOnStart();
+builder.Services.AddOptions<ApiOptions>().BindConfiguration(nameof(ApiOptions)).ValidateDataAnnotations().ValidateOnStart();
 builder.Services.AddOptions<SignatureOptions>().BindConfiguration(nameof(SignatureOptions)).ValidateDataAnnotations().ValidateOnStart();
 builder.Services.AddOptions<ELKOptions>().BindConfiguration(nameof(ELKOptions)).ValidateDataAnnotations().ValidateOnStart();
 
-builder.Services.AddScoped<ITerminalApiClient, TerminalApiClient>();
-builder.Services.AddScoped<IIdentificationHendler, IdentificationHendler>();
+builder.Services.AddScoped<PaymentsContext>();
+builder.Services.AddScoped<IdentifyDocContext>();
+
+builder.Services.AddTransient<IIdentificationHendler, IdentificationHendler>();
+builder.Services.AddTransient<ITerminalApiClient, TerminalApiClient>();
+builder.Services.AddTransient<IPaymentsRepository, PaymentsRepository>();
+builder.Services.AddTransient<IIdentifyDocRepository, IdentifyDocRepository>();
 
 var app = builder.Build();
 
@@ -35,42 +45,37 @@ app.UseHttpsRedirection();
 
 app.MapPost("/identification/api", async (HttpRequest httpRequest, IIdentificationHendler identificationHendler) =>
 {
-    ResponseType response = null;
     string requestRaw = string.Empty;
-    string responseRaw = string.Empty;
+    string responseString = string.Empty;
 
     try
     {
-        //TODO check  sign in header
-        //TODO check  request body
-
-        //var certificateSerialNumber = httpRequest.HttpContext.Connection?.ClientCertificate?.SerialNumber.Replace("-", "");
-        //var certSubject = CertificateMisc.NameToCN(httpRequest.HttpContext.Connection?.ClientCertificate?.Subject ?? string.Empty);
-
-        //app.Logger.LogInformation($"Начало обработки запроса. Данные клиентского сертификата: Serial=[{certificateSerialNumber}],Subject=[{certSubject}]");
-
         using var reader = new StreamReader(httpRequest.Body);
         requestRaw = await reader.ReadToEndAsync();
 
         app.Logger.LogInformation($"Request: {requestRaw}");
 
-        var sign = httpRequest.Headers["Sign"].ToString();
-        if (string.IsNullOrWhiteSpace(sign))
-        {
-            //throw new TAException(101, "description sign", "");
-        }
-        response = new ResponseType();
-        response = await identificationHendler.Handle(requestRaw, sign);//, certificateSerialNumber);
+        var response = await identificationHendler.Handle(requestRaw);
 
-        responseRaw = response.Serialize();
-        app.Logger.LogInformation($"Response: {responseRaw}");
+        responseString = ResponseToClientRaw.Serialize(response);
+        app.Logger.LogInformation($"Response: {responseString}");
+    }
+    catch (IdentifyException ex)
+    {
+        var response = new ResponseToClientRaw()
+        {
+            ReturnedValue = ex.ErrorCode.ToString(),
+            ReturnedDescription = ex.ErrorUserMessage
+        };
+
+        responseString = ResponseToClientRaw.Serialize(response);
     }
     catch (Exception ex)
     {
-        responseRaw = identificationHendler.ProcessException(requestRaw, ex);
+        responseString = identificationHendler.ProcessException(requestRaw, ex);
     }
 
-    return Results.Text(responseRaw, MediaTypeNames.Text.Xml);
+    return Results.Text(responseString, MediaTypeNames.Text.Xml);
 });
 
 app.Run();

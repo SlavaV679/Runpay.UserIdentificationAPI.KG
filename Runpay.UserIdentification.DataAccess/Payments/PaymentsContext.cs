@@ -22,7 +22,6 @@ public partial class PaymentsContext : DbContext
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-        var v = _configuration.GetConnectionString("PaymentsConnectionString");
         optionsBuilder.UseSqlServer(_configuration.GetConnectionString("PaymentsConnectionString"));
     }
 

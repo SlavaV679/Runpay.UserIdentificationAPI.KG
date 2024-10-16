@@ -1,13 +1,20 @@
-﻿using Azure;
-using ELKLogsNS;
+﻿using ELKLogsNS;
 using LocalizationHelper;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json.Linq;
+using Payments.GateWay.GateWayCommon;
 using Runpay.UserIdentification.BisinessLogic.Helpers;
 using Runpay.UserIdentification.BisinessLogic.Interfaces;
+using Runpay.UserIdentification.DataAccess.IdentifyDoc;
 using Runpay.UserIdentification.DataAccess.Interfaces;
+using Runpay.UserIdentification.Domain.Enums;
+using Runpay.UserIdentification.Domain.Extensions;
 using Runpay.UserIdentification.Domain.Models;
 using Runpay.UserIdentification.Domain.Options;
+using System.Globalization;
+using System;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using TerminalApiProtocol;
@@ -20,28 +27,100 @@ namespace Runpay.UserIdentification.BisinessLogic
         const int CertificateNotFoundErrorCode = -3;
         const int CertificateFileIsMissingErrorCode = -4;
 
-        protected Encoding EncodingIn = Encoding.GetEncoding(1251);
+        //protected Encoding EncodingIn = Encoding.GetEncoding(1251);
 
         private readonly SignatureOptions _signatureOptions;
+        private readonly ApiOptions _apiOptions;
         private readonly ILogger<IdentificationHendler> _logger;
         private readonly ITerminalApiClient _terminalApiClient;
         private readonly IPaymentsRepository _paymentsRepository;
+        private readonly IIdentifyDocRepository _identifyDocRepository;
 
         public IdentificationHendler(
             IOptions<SignatureOptions> signatureOptions,
+            IOptions<ApiOptions> apiOptions,
             ILogger<IdentificationHendler> logger,
             ITerminalApiClient terminalApiClient,
-        IPaymentsRepository paymentsRepository)
+        IPaymentsRepository paymentsRepository,
+        IIdentifyDocRepository identifyDocRepository)
 
         {
             _signatureOptions = signatureOptions.Value;
+            _apiOptions = apiOptions.Value;
             _logger = logger;
             _terminalApiClient = terminalApiClient;
             _paymentsRepository = paymentsRepository;
+            _identifyDocRepository = identifyDocRepository;
         }
 
-        public async Task<ResponseType> Handle(string requestRaw, string sign)
+        public async Task<ResponseToClientRaw> Handle(string requestRaw)
         {
+            var incomeRequestRow = IncomeRequestRaw.Deserialize(requestRaw);
+
+            if (!DateTime.TryParseExact(incomeRequestRow.PersonalData.DateOfBirth, "dd.MM.yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime birthDate))
+                throw new IdentifyException(ErrorCodeEnum.IncorrectDateOfBirth);
+
+            if (string.IsNullOrWhiteSpace(incomeRequestRow.Signwmid)
+                || string.IsNullOrWhiteSpace(incomeRequestRow.Sign)
+                || string.IsNullOrWhiteSpace(incomeRequestRow.PersonalData.Phone)
+                || string.IsNullOrWhiteSpace(incomeRequestRow.PersonalData.FirstName)
+                || string.IsNullOrWhiteSpace(incomeRequestRow.PersonalData.LastName)
+                || string.IsNullOrWhiteSpace(incomeRequestRow.PersonalData.MiddleName)
+                || string.IsNullOrWhiteSpace(incomeRequestRow.PersonalData.IssuingCountry)
+                || string.IsNullOrWhiteSpace(incomeRequestRow.PersonalData.PassportNumber)
+                )
+                throw new IdentifyException(ErrorCodeEnum.IncorrectRequestFormat);
+
+            Request requestDb = new Request()
+            {
+                PosCode = _apiOptions.PosCode,
+                Phone = incomeRequestRow.PersonalData.Phone,
+                DocType = "Passport",
+                DateAdd = DateTime.Now,
+                IsRegistered = false,
+                RegistrationTypeId = (int)RegistrationType.SimplisticallyIdentifiedNaturalPerson,
+                BillTypeId = (int)AccountType.UPESP,
+                IsConfirmed = false
+            };
+
+            requestDb.User = new User()
+            {
+                Idnp = incomeRequestRow.PersonalData.PassportNumber,
+                Name = incomeRequestRow.PersonalData.FirstName,
+                LastName = incomeRequestRow.PersonalData.LastName,
+                MiddleName = incomeRequestRow.PersonalData.MiddleName,
+                TypeId = (int)EnumUserTypes.TelepayRu
+            };
+
+            requestDb.User.Document = new Document
+            {
+                BirthDate = birthDate,
+                Beneficiar = $"{incomeRequestRow.PersonalData.FirstName} {incomeRequestRow.PersonalData.LastName}",
+                Country = incomeRequestRow.PersonalData.IssuingCountry,
+                AddressResidence = null,//$"{respPerson.Registration.Address.Region}, {respPerson.Registration.Address.Locality}, {respPerson.Registration.Address.Street} {respPerson.Registration.Address.House}, {respPerson.Registration.Address.Flat}",
+
+                TypeId = 1,
+                SerialNumber = incomeRequestRow.PersonalData.PassportNumber
+            };
+
+
+            if (_signatureOptions.ValidateSignature)
+                await VerifySign(incomeRequestRow);
+
+            var requestFromDb = await _identifyDocRepository.GetRequestByPhone(incomeRequestRow.PersonalData.Phone);
+            if (requestFromDb != null)
+                throw new IdentifyException(ErrorCodeEnum.ProfileAlreadyExists);
+
+            var requestId = await _identifyDocRepository.AddRequest(requestDb);
+            if (requestId == 0)
+                throw new IdentifyException(ErrorCodeEnum.InternalServerError);
+
+            return new ResponseToClientRaw()
+            {
+                ReturnedValue = ((int)ErrorCodeEnum.SuccessResultCode).ToString(),
+                ReturnedDescription = ErrorCodeEnum.SuccessResultCode.GetDescriptionByEnumValue()
+            };
+
             var incomeRequestTest = new IncomeRequest()
             {
                 Client = new()
@@ -92,13 +171,12 @@ namespace Runpay.UserIdentification.BisinessLogic
 
             //var requestType = RequestType.Deserialize(requestRaw);
 
-            if (_signatureOptions.ValidateSignature)
-                await VerifySign("request", "sign", "CertSerial");
+
 
             _logger.LogInformation($"Request to TAPI: '{requestType.Serialize()}'");
 
             var response2 = await _terminalApiClient.AuthorizeUser(requestType);
-            
+
             _logger.LogInformation($"Response from TAPI: '{response2.Serialize()}'");
 
             if (response2.Data == null)
@@ -148,127 +226,68 @@ namespace Runpay.UserIdentification.BisinessLogic
                 throw new TAException(response3?.ErrorCode ?? -5, $"IdentifyUser error {response3.ErrorText}", "message for developer");
             }
 
-            return response3;
+            return null;
         }
 
-        private async Task VerifySign(string originalMessage, string signedMessage, string certSerial)
+        private async Task VerifySign(IncomeRequestRaw incomeRequestRow)
         {
-            throw new TAException(100, "Description error", "message for developer");
+            var stringForSign = $"{incomeRequestRow.Signwmid};{incomeRequestRow.PersonalData.PassportNumber};{incomeRequestRow.PersonalData.IssuingCountry};{_signatureOptions.SecretKey}";
+
+            var signAsSHA256Hash = GetSHA256Hash(stringForSign, Encoding.UTF8);
+
+            if (signAsSHA256Hash != incomeRequestRow.Sign)
+                throw new IdentifyException(ErrorCodeEnum.SignatureIsNotValid);
         }
 
-        protected async Task VerifySign(string originalMessage, string signedMessage, RequestType requestType)
+        public static string GetSHA256Hash(string input, Encoding encoding)
         {
-            var culture = requestType.Client.Culture ?? "MD";
-
-            if (!await _paymentsRepository.CheckCertificate(requestType.CertSerial))
-                throw new TAException(
-                    CertificateNotFoundErrorCode,
-                    LocalizationResourceKey.CertificateNotFound,
-                    "Your request has been rejected. Certificate not found or blocked.",
-                    culture);
-
-            var publicCertPath = Path.Combine(Path.GetDirectoryName(_signatureOptions.PublicCertPath), requestType.CertSerial + ".cer");
-
-            if (!File.Exists(publicCertPath))
-                throw new TAException(
-                    CertificateFileIsMissingErrorCode,
-                    LocalizationResourceKey.CertificateFileIsMissing,
-                    "Certificate file is missing",
-                    culture);
-
-            if (!RSAHelper.VerifySignature(originalMessage, EncodingIn, signedMessage, publicCertPath))
+            byte[] array = SHA256.Create().ComputeHash(encoding.GetBytes(input));
+            StringBuilder stringBuilder = new StringBuilder();
+            for (int i = 0; i < array.Length; i++)
             {
-                throw new TAException(
-                    SignatureIsNotValidErrorCode,
-                    LocalizationResourceKey.SignatureIsNotValid,
-                    "Sign of request is failed",
-                    culture);
+                stringBuilder.Append(array[i].ToString("x2"));
             }
 
-            _logger.LogInformation($"Verifying signature is success.");
+            return stringBuilder.ToString();
         }
-
 
         public string ProcessException(string requestRaw, Exception ex)
         {
-            RequestType request = null;
+            IncomeRequestRaw request = null;
             try
             {
-                request = RequestType.Deserialize(requestRaw);
+                request = IncomeRequestRaw.Deserialize(requestRaw);
             }
             catch (Exception exc)
             {
                 _logger.LogError($"Request deserialization error: {requestRaw}", exc);
-                //throw;
             }
-            var _response = new ResponseType();
-            if (request != null && request.RequestId != null)
+
+            var phone = string.Empty;
+            if (request != null && request.PersonalData.Phone != null)
             {
-                _response.RequestId = request.RequestId;
+                phone = request.PersonalData.Phone;
             }
-            int errCode = -1;
-            string errTxt = "Error processing request";
+
+            string errTxt = $"Error processing request {phone}";
             string errDbg = ex.ToString();
+
             Exception inEx = ex.InnerException;
             while (inEx != null)
             {
                 errDbg += "\n" + inEx.Message;
                 inEx = inEx.InnerException;
             }
-            if (ex.Data["ERROR_CODE"] != null)
-            {
-                try
-                {
-                    errCode = (int)ex.Data["ERROR_CODE"];
-                    errTxt = (string)ex.Data["ERROR_USR"];
-                    if (ex.Data["ERROR_DBG"] != null)
-                        errDbg = (string)ex.Data["ERROR_DBG"];
-                }
-                catch (Exception ex1)
-                {
-                    _logger.LogError($"Error installing inner exception information. {ex1}");
-                }
-            }
-            _response.ErrorCode = errCode;
-            _response.ErrorText = errTxt;
-            _response.DebugText = errDbg;
 
-            if (ex.Data["RESPONSE"] != null)
-            {
-                _response.Data = (ResponseTypeData)ex.Data["RESPONSE"];
-            }
+            _logger.LogWarning(errTxt + Environment.NewLine + errDbg + Environment.NewLine + ex);
 
-            if (errCode == -1)
+            var response = new ResponseToClientRaw()
             {
-                ELKSender.SendEvent(new ELKEvent()
-                {
-                    Context = new Context
-                    {
-                        Country = Config.ELK_Country,
-                        PosCode = request.Client.TerminalId
-                    },
-                    Event = new Event()
-                    {
-                        Level = EnumEventLevel.Error,
-                        Result = EnumEventResult.Error,
-                        Type = EnumEventType.TA_EXCEPTION,
-                    },
-                    Exception = new ExceptionInfo()
-                    {
-                        ErrorCode = errCode,
-                        ErrorText = errTxt,
-                        DebugText = errDbg,
-                        Request = requestRaw
-                    }
-                });
-                _logger.LogError($"{errTxt + Environment.NewLine + errDbg + Environment.NewLine + ex + Environment.NewLine}. The RequestId caused an error: {request?.RequestId}");
-            }
-            else
-            {
-                _logger.LogWarning(errTxt + Environment.NewLine + errDbg + Environment.NewLine + ex);
-            }
+                ReturnedValue = ((int)ErrorCodeEnum.ServerError).ToString(),
+                ReturnedDescription = ErrorCodeEnum.ServerError.GetDescriptionByEnumValue()
+            };
 
-            var responseMsg = _response.Serialize();
+            var responseMsg = ResponseToClientRaw.Serialize(response);
 
             return responseMsg;
         }

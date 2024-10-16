@@ -1,10 +1,11 @@
-﻿using TerminalApiProtocol;
+﻿using Runpay.UserIdentification.Domain.Models;
+using TerminalApiProtocol;
 
 namespace Runpay.UserIdentification.BisinessLogic.Interfaces
 {
     public interface IIdentificationHendler
     {
-        Task<ResponseType> Handle(string requestRaw, string sign);
+        Task<ResponseToClientRaw> Handle(string requestRaw);
 
         string ProcessException(string requestRaw, Exception ex);
     }
